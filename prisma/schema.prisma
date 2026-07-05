@@ -11,3 +11,111 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum DocumentRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum OperationStatus {
+  PENDING
+  APPLIED
+  FAILED
+}
+
+model User {
+  id        String   @id @db.Uuid
+  name      String
+  email     String   @unique
+  password  String
+  image     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  documents   Document[]          @relation("OwnerDocuments")
+  memberships DocumentMember[]
+  versions    DocumentVersion[]
+  operations  DocumentOperation[]
+
+  @@index([email], name: "user_email_idx")
+  @@map("users")
+}
+
+model Document {
+  id             String    @id @db.Uuid
+  title          String
+  content        Json
+  currentVersion Int       @default(1) @map("current_version")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  ownerId String @map("owner_id") @db.Uuid
+  owner   User   @relation("OwnerDocuments", fields: [ownerId], references: [id])
+
+  members    DocumentMember[]
+  versions   DocumentVersion[]
+  operations DocumentOperation[]
+
+  @@index([ownerId])
+  @@index([updatedAt])
+  @@map("documents")
+}
+
+model DocumentMember {
+  id                String       @id @db.Uuid
+  role              DocumentRole @default(VIEWER)
+  lastSyncedVersion Int          @default(0) @map("last_synced_version")
+  joinedAt          DateTime     @default(now()) @map("joined_at")
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  documentId String   @map("document_id") @db.Uuid
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, userId])
+  @@index([userId])
+  @@index([documentId])
+  @@map("document_members")
+}
+
+model DocumentVersion {
+  id            String   @id @db.Uuid
+  versionNumber Int      @map("version_number")
+  title         String
+  content       Json
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  createdById String @map("created_by_id") @db.Uuid
+  createdBy   User   @relation(fields: [createdById], references: [id])
+
+  documentId String   @map("document_id") @db.Uuid
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId])
+  @@map("document_versions")
+}
+
+model DocumentOperation {
+  id          String          @id @db.Uuid
+  operationId String          @unique @map("operation_id")
+  clientId    String          @map("client_id")
+  baseVersion Int             @map("base_version")
+  payload     Json // payload represents only minimal change, not the entire document content
+  status      OperationStatus @default(PENDING)
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  documentId String   @map("document_id") @db.Uuid
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([documentId])
+  @@index([userId])
+  @@index([baseVersion])
+  @@map("document_operations")
+}
